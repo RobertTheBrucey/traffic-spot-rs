@@ -1,8 +1,8 @@
 [package]
-name = "Traffic Spot RS"
+name = "traffic-spot-rs"
 version = "0.1.2"
 edition = "2021"
-authors = "Robert The Brucey"
+authors = ["Robert The Brucey"]
 description = "Automatic start/stop of Services based on monitored network traffic"
 homepage = "https://github.com/RobertTheBrucey/traffic-spot-rs"
 
