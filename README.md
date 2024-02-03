@@ -4,6 +4,7 @@ Automatically start and stop services based on monitored network traffic
 ## Important Note
 Currently the start/stop commands must exit after starting/stopping the service, such as a "systemctl start" or "docker start"
 This program does not support starting a long running daemon at this time.
+Ports specified are UDP only at this stage.
 
 ## General info
 
