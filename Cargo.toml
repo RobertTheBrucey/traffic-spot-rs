@@ -1,6 +1,6 @@
 [package]
 name = "traffic-spot-rs"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 authors = ["Robert The Brucey"]
 description = "Automatic start/stop of Services based on monitored network traffic"

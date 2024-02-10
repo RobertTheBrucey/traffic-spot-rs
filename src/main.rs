@@ -30,6 +30,9 @@ struct Cli {
    #[arg(short, long, default_value = "900")]
    timeout: Option<u64>,
 
+   //Debug Flag
+   #[arg(short, long, action)]
+   debug: bool,
    //Check command
    //Packet filter?
 }
@@ -58,7 +61,9 @@ fn main() {
 
     //Tie IP to Device
     let devices = Device::list().expect("Error listing network interfaces");
-    dbg!(&devices);
+    if cli.debug {
+        dbg!(&devices);
+    }
 
     let device = devices
             .into_iter()
@@ -90,35 +95,46 @@ fn main() {
 
     println!("Capture started for UDP traffic on {}:{:?}", ip, cli.ports.unwrap());
     let mut last_packet_time = Instant::now();
+    let mut p_count = 0;
     // Monitor indefinitely
     loop {
         //Clear the buffer since last read - ideally this should be it's own thread.
         while let Ok(packet) = cap.next_packet() {
-            // Access the packet data
+            p_count += 1;
+            // Access the packet data - Useful for counting clients
             let _data = packet;
             //println!("Received packet: {:?}", data); //For deep debugging only
             last_packet_time = Instant::now();
             if !running {
                 //Startup
-                running = true;
                 println!("Starting Service");
                 #[cfg(target_family="unix")]
                 let s_output = Command::new("sh").arg("-c").arg(OsString::from(cli.start_command.as_ref().unwrap())).spawn();
 //                #[cfg(target_family="windows")] //Future Windows support
                 println!("Start command output: {:?}", s_output);
+                running = true;
             }
         }
-        if timeout > Duration::from_secs(0) && last_packet_time.elapsed() >= timeout && running {
+        if cli.debug {
+            println!("Packets recieved: {}", p_count);
+        }
+        p_count = 0;
+        if last_packet_time.elapsed() >= timeout && running {
             //Shutdown
-            running = false;
-            println!("Stopping Service");
+            print!("Timeout Expired:");
             if cli.finish_command.is_some() {
+                println!(" Stopping Service");
                 #[cfg(target_family="unix")]
                 let f_output = Command::new("sh").arg("-c").arg(OsString::from(cli.finish_command.as_ref().unwrap())).spawn();
 //                #[cfg(target_family="windows")] //Future Windows support
-                println!("Start command output: {:?}", f_output);
+                println!("Stop command output: {:?}", f_output);
+            } else {
+                println!(" Resetting running flag for next start");
             }
+            running = false;
+            //Clear buffer
+            //while let Ok(_packet) = cap.next_packet() {}
         }
-        thread::sleep(std::time::Duration::from_millis(100));
+        thread::sleep(std::time::Duration::from_millis(1000));
     }
 }
