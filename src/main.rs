@@ -1,48 +1,147 @@
-use pcap::{Device, Capture};
-use std::process::Command;
-use std::time::{Duration, Instant};
-use std::thread;
-use clap::Parser;
+use clap::{Args, Parser};
 use default_net;
 use itertools::Itertools;
+use pcap::{Capture, Device};
 use std::ffi::OsString;
+use std::process::Command;
+use std::string::String;
+use std::thread;
+use std::time::{Duration, Instant};
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-   //IP - Optional
-   #[arg(short, long)]
-   address: Option<String>,
+    #[command(flatten)]
+    ports: Ports,
+    //IP - Optional
+    #[arg(short, long)]
+    address: Option<String>,
 
-   //Port(s) - Required
-   #[arg(short, long, required = true)]
-   ports: Option<Vec<u64>>,
+    //Start command - Required
+    #[arg(short, long, required = true)]
+    start_command: Option<String>,
 
-   //Start command - Required
-   #[arg(short, long, required = true)]
-   start_command: Option<String>,
+    //Finish command - Optional
+    #[arg(short, long)]
+    finish_command: Option<String>,
 
-   //Finish command - Optional
-   #[arg(short, long)]
-   finish_command: Option<String>,
+    //Timeout - Optional
+    #[arg(long, default_value = "900")]
+    timeout: Option<u64>,
 
-   //Timeout - Optional
-   #[arg(short, long, default_value = "900")]
-   timeout: Option<u64>,
+    //Debug Flag
+    #[arg(short, long, action)]
+    debug: bool,
+    //Check command
+    //Packet filter?
+}
 
-   //Debug Flag
-   #[arg(short, long, action)]
-   debug: bool,
-   //Check command
-   //Packet filter?
+#[derive(Args)]
+#[group(required = true)]
+struct Ports {
+    //UDP & TCP Ports
+    #[arg(short = 'p', long)]
+    both: Option<Vec<u64>>,
+
+    #[arg(short, long)]
+    tcp: Option<Vec<u64>>,
+
+    #[arg(short, long)]
+    udp: Option<Vec<u64>>,
+}
+
+fn generate_port_str(ports: &Ports) -> String {
+    let mut port_string = String::from("( ");
+    if ports.both.is_some() {
+        port_string.push_str("dst port ");
+        port_string.push_str(
+            ports
+                .both
+                .as_ref()
+                .unwrap()
+                .into_iter()
+                .join(" or dst port ")
+                .as_str(),
+        );
+        port_string.push_str(" ");
+    }
+
+    if ports.udp.is_some() {
+        if ports.both.is_some() {
+            port_string.push_str("or ");
+        }
+        port_string.push_str("udp dst port ");
+        port_string.push_str(
+            ports
+                .udp
+                .as_ref()
+                .unwrap()
+                .into_iter()
+                .join(" or udp dst port ")
+                .as_str(),
+        );
+        port_string.push_str(" ");
+    }
+
+    if ports.tcp.is_some() {
+        if ports.both.is_some() || ports.udp.is_some() {
+            port_string.push_str("or ");
+        }
+        port_string.push_str("tcp dst port ");
+        port_string.push_str(
+            ports
+                .tcp
+                .as_ref()
+                .unwrap()
+                .into_iter()
+                .join(" or udp dst port ")
+                .as_str(),
+        );
+        port_string.push_str(" ");
+    }
+
+    port_string.push_str(")");
+    return port_string;
+}
+
+fn generate_pretty_port_str(ports: &Ports) -> String {
+    let mut port_string = String::from("");
+    if ports.udp.is_some() || ports.both.is_some() {
+        port_string.push_str("UDP: ");
+    }
+    if ports.udp.is_some() {
+        port_string.push_str(ports.udp.as_ref().unwrap().into_iter().join(",").as_str());
+        if ports.tcp.is_some() || ports.both.is_some() {
+            port_string.push_str(",");
+        }
+    }
+    if ports.both.is_some() {
+        port_string.push_str(ports.both.as_ref().unwrap().into_iter().join(",").as_str());
+    }
+    if ports.tcp.is_some() || ports.both.is_some() {
+        port_string.push_str(" TCP: ");
+    }
+    if ports.tcp.is_some() {
+        port_string.push_str(ports.tcp.as_ref().unwrap().into_iter().join(",").as_str());
+    }
+    if ports.both.is_some() {
+        if ports.tcp.is_some() {
+            port_string.push_str(",");
+        }
+        port_string.push_str(ports.both.as_ref().unwrap().into_iter().join(",").as_str());
+    }
+
+    port_string.push_str(")");
+    return port_string;
 }
 
 fn main() {
     let mut running = false;
     let cli = Cli::parse();
+    let ports = cli.ports;
     let ip: String;
     let timeout = Duration::from_secs(cli.timeout.unwrap());
-    
+
     if cli.address.is_some() {
         ip = cli.address.unwrap();
         println!("Using provided IP {}, to find appropriate interface.", ip);
@@ -66,14 +165,9 @@ fn main() {
     }
 
     let device = devices
-            .into_iter()
-            .find(|dev| {
-                  dev
-                  .addresses
-                  .iter()
-                  .any(|addr| addr.addr.to_string() == ip)
-            })
-            .expect(format!("Could not find interface with IP: {}", ip).as_str());
+        .into_iter()
+        .find(|dev| dev.addresses.iter().any(|addr| addr.addr.to_string() == ip))
+        .expect(format!("Could not find interface with IP: {}", ip).as_str());
     println!("Interface found: {:?}\nStarting Capture.", device);
 
     // Open the network device for capture
@@ -87,13 +181,24 @@ fn main() {
         .unwrap();
 
     // Set a BPF filter to capture only UDP traffic on ports specified
-    let port_string = "(udp dst port ".to_owned() + 
-        cli.ports.as_ref().unwrap().into_iter().join(" or udp dst port ").as_str() + 
-        ")";
-    cap.filter(format!("{} and dst host {}", port_string, ip).as_str(), true)
-        .expect("Error setting capture filter.");
+    let port_string = generate_port_str(&ports);
+    cap.filter(
+        format!("{} and dst host {}", port_string, ip).as_str(),
+        true,
+    )
+    .expect(
+        format!(
+            "Error setting capture filter: '{} and dst host {}'",
+            port_string, ip
+        )
+        .as_str(),
+    );
 
-    println!("Capture started for UDP traffic on {}:{:?}", ip, cli.ports.unwrap());
+    println!(
+        "Capture started for UDP traffic on {} Ports: {}",
+        ip,
+        generate_pretty_port_str(&ports)
+    );
     let mut last_packet_time = Instant::now();
     let mut p_count = 0;
     // Monitor indefinitely
@@ -108,9 +213,12 @@ fn main() {
             if !running {
                 //Startup
                 println!("Starting Service");
-                #[cfg(target_family="unix")]
-                let s_output = Command::new("sh").arg("-c").arg(OsString::from(cli.start_command.as_ref().unwrap())).spawn();
-//                #[cfg(target_family="windows")] //Future Windows support
+                #[cfg(target_family = "unix")]
+                let s_output = Command::new("sh")
+                    .arg("-c")
+                    .arg(OsString::from(cli.start_command.as_ref().unwrap()))
+                    .spawn();
+                //                #[cfg(target_family="windows")] //Future Windows support
                 println!("Start command output: {:?}", s_output);
                 running = true;
             }
@@ -124,9 +232,12 @@ fn main() {
             print!("Timeout Expired:");
             if cli.finish_command.is_some() {
                 println!(" Stopping Service");
-                #[cfg(target_family="unix")]
-                let f_output = Command::new("sh").arg("-c").arg(OsString::from(cli.finish_command.as_ref().unwrap())).spawn();
-//                #[cfg(target_family="windows")] //Future Windows support
+                #[cfg(target_family = "unix")]
+                let f_output = Command::new("sh")
+                    .arg("-c")
+                    .arg(OsString::from(cli.finish_command.as_ref().unwrap()))
+                    .spawn();
+                //                #[cfg(target_family="windows")] //Future Windows support
                 println!("Stop command output: {:?}", f_output);
             } else {
                 println!(" Resetting running flag for next start");
