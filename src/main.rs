@@ -138,7 +138,6 @@ fn generate_pretty_port_str(ports: &Ports) -> String {
         port_string.push_str(ports.both.as_ref().unwrap().into_iter().join(",").as_str());
     }
 
-    port_string.push_str(")");
     return port_string;
 }
 
