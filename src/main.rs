@@ -5,6 +5,7 @@ use pcap::{Capture, Device};
 use std::ffi::OsString;
 use std::process::Command;
 use std::string::String;
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -176,8 +177,8 @@ fn main() {
         .promisc(true)
         .timeout(1000) //Required for responsive capture
         .open()
-        .unwrap()
-        .setnonblock()
+        //.unwrap()
+        //.setnonblock()
         .unwrap();
 
     // Set a BPF filter to capture only UDP traffic on ports specified
@@ -201,15 +202,20 @@ fn main() {
     );
     let mut last_packet_time = Instant::now();
     let mut p_count = 0;
+    // Set up monitoring thread
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        while let Ok(_packet) = cap.next_packet() {
+            let packet_time = Instant::now();
+            tx.send(packet_time).unwrap();
+        }
+    });
     // Monitor indefinitely
     loop {
         //Clear the buffer since last read - ideally this should be it's own thread.
-        while let Ok(packet) = cap.next_packet() {
+        while let Ok(thread_packet_time) = rx.try_recv() {
+            last_packet_time = thread_packet_time;
             p_count += 1;
-            // Access the packet data - Useful for counting clients
-            let _data = packet;
-            //println!("Received packet: {:?}", data); //For deep debugging only
-            last_packet_time = Instant::now();
             if !running {
                 //Startup
                 println!("Starting Service");
@@ -237,14 +243,12 @@ fn main() {
                     .arg("-c")
                     .arg(OsString::from(cli.finish_command.as_ref().unwrap()))
                     .spawn();
-                //                #[cfg(target_family="windows")] //Future Windows support
+                //#[cfg(target_family="windows")] //Future Windows support
                 println!("Stop command output: {:?}", f_output);
             } else {
                 println!(" Resetting running flag for next start");
             }
             running = false;
-            //Clear buffer
-            //while let Ok(_packet) = cap.next_packet() {}
         }
         thread::sleep(std::time::Duration::from_millis(1000));
     }
