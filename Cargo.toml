@@ -1,6 +1,6 @@
 [package]
 name = "traffic-spot-rs"
-version = "0.1.5"
+version = "0.1.6"
 edition = "2021"
 authors = ["Robert The Brucey"]
 description = "Automatic start/stop of Services based on monitored network traffic"
@@ -14,3 +14,4 @@ pcap = "1.2.0"
 clap = { version = "4.4.18", features = ["derive"] }
 default-net = "0.21.0"
 itertools = "0.12.1"
+etherparse = "0.14.2"
