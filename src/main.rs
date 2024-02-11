@@ -47,7 +47,7 @@ struct Cli {
 #[group(required = true)]
 struct Ports {
     //UDP & TCP Ports
-    #[arg(short = 'p', long)]
+    #[arg(short = 'p', long = "port")]
     both: Option<Vec<u64>>,
 
     #[arg(short, long)]
